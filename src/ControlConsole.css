@@ -396,6 +396,14 @@
   accent-color: #5ddcb3;
 }
 
+.hue-control {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 16px;
+  margin-top: 16px;
+}
+
 .audio-toggle {
   display: flex;
   align-items: center;

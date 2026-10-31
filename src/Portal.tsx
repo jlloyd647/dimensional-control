@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type AudioStatus } from './audio/AudioEngine'
 import {
+  ambientTracks,
   defaultAudioSettings,
   parseAudioSettingsPatch,
   RANDOM_TRACK_ID,
   type AudioSettings,
 } from './audio/audioRegistry'
 import { OPENING_DURATION_MS, SEALING_DURATION_MS } from './portalTiming'
+import { MembraneCanvas } from './MembraneCanvas'
 import { scenarioRegistry, type ScenarioId } from './scenarios'
 import {
   CHANNEL_NAME,
@@ -22,7 +24,29 @@ type PortalState = PortalSnapshot['portalState']
 
 const AUDIO_STORAGE_KEY = 'dimensional-control.audio'
 const ACTIVATION_STORAGE_KEY = 'dimensional-control.activation-by-scenario'
+const HUE_STORAGE_KEY = 'dimensional-control.membrane-hue'
+const OPACITY_STORAGE_KEY = 'dimensional-control.membrane-opacity'
+const MEMBRANE_OPACITY_ACTIVE = 0.25
+const MEMBRANE_OPACITY_AFTER = 0.75
 
+function loadMembraneOpacity(): number {
+  try {
+    const stored = window.localStorage.getItem(OPACITY_STORAGE_KEY)
+    const opacity = stored === null ? 1 : Number(stored)
+    return Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1
+  } catch {
+    return 1
+  }
+}
+
+function loadMembraneHue(): number {
+  try {
+    const hue = Number(window.localStorage.getItem(HUE_STORAGE_KEY))
+    return Number.isFinite(hue) ? Math.min(180, Math.max(-180, hue)) : 0
+  } catch {
+    return 0
+  }
+}
 type ActivationByScenario = Partial<Record<ScenarioId, string>>
 
 // Per-scenario activation choices persist in localStorage across sessions.
@@ -69,6 +93,8 @@ function Portal() {
     () => navigator.userActivation?.hasBeenActive ?? false,
   )
   const [unstable, setUnstable] = useState(false)
+  const [membraneHue, setMembraneHue] = useState(loadMembraneHue)
+  const [membraneOpacity, setMembraneOpacity] = useState(loadMembraneOpacity)
   const [scale, setScale] = useState(1)
   const [offsetX, setOffsetX] = useState(0)
   const [offsetY, setOffsetY] = useState(0)
@@ -88,15 +114,19 @@ function Portal() {
     videoStatus,
     calibrationVisible,
     unstable,
+    membraneHue,
+    membraneOpacity,
     error: scenarioError,
     audio: { ...effectiveAudio, ...audioStatus, activationByScenario },
-  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, scenarioError, effectiveAudio, audioStatus, activationByScenario])
+  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, membraneHue, membraneOpacity, scenarioError, effectiveAudio, audioStatus, activationByScenario])
   const snapshotRef = useRef<PortalSnapshot>({
     portalState: 'CLOSED',
     selectedScenarioId: 'the-observer',
     videoStatus: 'loading',
     calibrationVisible: false,
     unstable: false,
+    membraneHue: 0,
+    membraneOpacity: 1,
     error: null,
     audio: { ...defaultAudioSettings, ready: false, error: null, activationByScenario: {} },
   })
@@ -209,6 +239,12 @@ function Portal() {
       case 'SET_UNSTABLE':
         setUnstable(command.enabled)
         break
+      case 'SET_MEMBRANE_OPACITY':
+        setMembraneOpacity(command.opacity)
+        break
+      case 'SET_MEMBRANE_HUE':
+        setMembraneHue(command.hue)
+        break
       case 'SET_ACTIVATION_TRACK':
         setActivationByScenario((current) => ({ ...current, [command.scenarioId]: command.trackId }))
         break
@@ -266,6 +302,21 @@ function Portal() {
     }
   }, [activationByScenario])
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HUE_STORAGE_KEY, String(membraneHue))
+    } catch {
+      // Local storage is optional; the color simply will not persist.
+    }
+  }, [membraneHue])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OPACITY_STORAGE_KEY, String(membraneOpacity))
+    } catch {
+      // Local storage is optional; the opacity simply will not persist.
+    }
+  }, [membraneOpacity])
   // Keep multiple open portal windows consistent with each other.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -287,6 +338,25 @@ function Portal() {
     else if (portalState === 'ACTIVE') engine.setPhase('video')
     else engine.setPhase('idle')
   }, [portalState, openingRun])
+
+  // The membrane dims while a video plays and returns to a higher resting level afterwards.
+  const previousPortalState = useRef(portalState)
+  useEffect(() => {
+    const wasActive = previousPortalState.current === 'ACTIVE'
+    previousPortalState.current = portalState
+    const isActive = portalState === 'ACTIVE'
+    if (!isActive && !wasActive) return
+    window.setTimeout(() => {
+      setMembraneOpacity(isActive ? MEMBRANE_OPACITY_ACTIVE : MEMBRANE_OPACITY_AFTER)
+      if (isActive) return
+      // When a video finishes or is closed, return to a different random ambient track.
+      setAudioSettings((settings) => {
+        const others = ambientTracks.filter((track) => track.id !== settings.ambientTrackId)
+        if (others.length === 0) return settings
+        return { ...settings, ambientTrackId: others[Math.floor(Math.random() * others.length)].id }
+      })
+    }, 0)
+  }, [portalState])
 
   useEffect(() => {
     let channel: BroadcastChannel
@@ -452,13 +522,15 @@ function Portal() {
           }}
         >
           <div
-            className={`membrane membrane--${portalState.toLowerCase()}${calibrationVisible ? ' membrane--calibrating' : ''}`}
+            className={[
+              'membrane',
+              `membrane--${portalState.toLowerCase()}`,
+              calibrationVisible ? 'membrane--calibrating' : '',
+            ].filter(Boolean).join(' ')}
             aria-hidden="true"
+            style={membraneHue !== 0 ? { filter: `hue-rotate(${membraneHue}deg)` } : undefined}
           >
-            <div className="membrane__halo" />
-            <div className="membrane__ring membrane__ring--outer" />
-            <div className="membrane__ring membrane__ring--middle" />
-            <div className="membrane__core" />
+            <MembraneCanvas opacity={membraneOpacity} />
           </div>
           <div
             className={[

@@ -18,6 +18,8 @@ export type PortalSnapshot = {
   videoStatus: VideoStatus
   calibrationVisible: boolean
   unstable: boolean
+  membraneHue: number
+  membraneOpacity: number
   error: string | null
   audio: AudioSnapshot
 }
@@ -37,6 +39,8 @@ type ControlCommandPayload =
   | { type: 'SET_UNSTABLE'; enabled: boolean }
   | { type: 'SET_AUDIO_SETTINGS'; settings: Partial<AudioSettings> }
   | { type: 'SET_ACTIVATION_TRACK'; scenarioId: ScenarioId; trackId: string }
+  | { type: 'SET_MEMBRANE_HUE'; hue: number }
+  | { type: 'SET_MEMBRANE_OPACITY'; opacity: number }
 export type ControlCommand = MessageBase & ControlCommandPayload
 
 type PortalEventPayload =
@@ -67,6 +71,8 @@ function isPortalSnapshot(value: unknown): value is PortalSnapshot {
     && videoStatuses.includes(value.videoStatus as VideoStatus)
     && typeof value.calibrationVisible === 'boolean'
     && typeof value.unstable === 'boolean'
+    && typeof value.membraneHue === 'number'
+    && typeof value.membraneOpacity === 'number'
     && (typeof value.error === 'string' || value.error === null)
     && isAudioSnapshot(value.audio)
 }
@@ -94,6 +100,10 @@ export function isControlCommand(value: unknown): value is ControlCommand {
       return typeof value.enabled === 'boolean'
     case 'SET_AUDIO_SETTINGS':
       return parseAudioSettingsPatch(value.settings) !== null
+    case 'SET_MEMBRANE_OPACITY':
+      return typeof value.opacity === 'number' && Number.isFinite(value.opacity) && value.opacity >= 0 && value.opacity <= 1
+    case 'SET_MEMBRANE_HUE':
+      return typeof value.hue === 'number' && Number.isFinite(value.hue) && value.hue >= -180 && value.hue <= 180
     case 'SET_ACTIVATION_TRACK':
       return typeof value.scenarioId === 'string'
         && Object.prototype.hasOwnProperty.call(scenarioRegistry, value.scenarioId)

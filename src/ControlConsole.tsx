@@ -127,7 +127,7 @@ function ControlConsole() {
   }, [connected])
 
   const sendSimpleCommand = useCallback((
-    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE' | 'SET_AUDIO_SETTINGS' | 'SET_ACTIVATION_TRACK'>,
+    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE' | 'SET_AUDIO_SETTINGS' | 'SET_ACTIVATION_TRACK' | 'SET_MEMBRANE_HUE' | 'SET_MEMBRANE_OPACITY'>,
     label: string,
   ) => sendCommand(createControlCommand({ type }), label), [sendCommand])
 
@@ -149,6 +149,30 @@ function ControlConsole() {
     sendCommand(createControlCommand({ type: 'EMERGENCY_SEAL' }), 'Emergency seal', true)
   }, [sendCommand])
 
+  const sendMembraneOpacity = useCallback((opacity: number) => {
+    const channel = channelRef.current
+    if (!connected || !channel) return
+    try {
+      channel.postMessage(createControlCommand({ type: 'SET_MEMBRANE_OPACITY', opacity }))
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? `Opacity command could not be sent: ${error.message}` : 'Opacity command could not be sent.',
+      )
+    }
+  }, [connected])
+
+  const sendMembraneHue = useCallback((hue: number) => {
+    const channel = channelRef.current
+    if (!connected || !channel) return
+    try {
+      channel.postMessage(createControlCommand({ type: 'SET_MEMBRANE_HUE', hue }))
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? `Color command could not be sent: ${error.message}` : 'Color command could not be sent.',
+      )
+    }
+  }, [connected])
+
   const sendActivationTrack = useCallback((scenarioId: ScenarioId, trackId: string) => {
     const channel = channelRef.current
     if (!connected || !channel) return
@@ -162,6 +186,8 @@ function ControlConsole() {
   }, [connected])
 
   const [activationDraft, setActivationDraft] = useState<Partial<Record<ScenarioId, string>>>({})
+  const [hueDraft, setHueDraft] = useState<number | null>(null)
+  const [opacityDraft, setOpacityDraft] = useState<number | null>(null)
 
   // Show the operator's choice immediately; fall back to the reported value if the portal doesn't confirm it.
   const chooseActivationTrack = useCallback((scenarioId: ScenarioId, trackId: string) => {
@@ -339,6 +365,57 @@ function ControlConsole() {
             >
               {snapshot?.calibrationVisible ? 'Hide calibration grid' : 'Show calibration grid'}
             </button>
+          </div>
+          <div className="hue-control">
+            <label className="audio-field">
+              <span>Portal Color <output>{hueDraft ?? snapshot?.membraneHue ?? 0}°</output></span>
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={hueDraft ?? snapshot?.membraneHue ?? 0}
+                disabled={!snapshot || !connected}
+                onChange={(event) => {
+                  const hue = Number(event.target.value)
+                  setHueDraft(hue)
+                  sendMembraneHue(hue)
+                }}
+                onPointerUp={() => setHueDraft(null)}
+                onKeyUp={() => setHueDraft(null)}
+                onBlur={() => setHueDraft(null)}
+              />
+            </label>
+            <button
+              className="console-button"
+              type="button"
+              disabled={!snapshot || !connected || (snapshot.membraneHue === 0 && hueDraft === null)}
+              onClick={() => {
+                setHueDraft(null)
+                sendMembraneHue(0)
+              }}
+            >
+              Reset color
+            </button>
+            <label className="audio-field">
+              <span>Portal Opacity <output>{Math.round((opacityDraft ?? snapshot?.membraneOpacity ?? 1) * 100)}%</output></span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round((opacityDraft ?? snapshot?.membraneOpacity ?? 1) * 100)}
+                disabled={!snapshot || !connected}
+                onChange={(event) => {
+                  const opacity = Number(event.target.value) / 100
+                  setOpacityDraft(opacity)
+                  sendMembraneOpacity(opacity)
+                }}
+                onPointerUp={() => setOpacityDraft(null)}
+                onKeyUp={() => setOpacityDraft(null)}
+                onBlur={() => setOpacityDraft(null)}
+              />
+            </label>
           </div>
           {pendingCommand && (
             <p className="console-feedback" role="status">

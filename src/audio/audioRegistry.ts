@@ -13,6 +13,7 @@ export const audioTracks: AudioTrack[] = [
   { id: 'abandoned-sector-alt', name: 'Abandoned Sector (Alt)', category: 'ambient', path: '/audio/ambient/Abandoned Sector (1).mp3' },
   { id: 'subterranean-pulse', name: 'Subterranean Pulse', category: 'ambient', path: '/audio/ambient/Subterranean Pulse.mp3' },
   { id: 'subterranean-pulse-alt', name: 'Subterranean Pulse (Alt)', category: 'ambient', path: '/audio/ambient/Subterranean Pulse (1).mp3' },
+  { id: 'mechanical-heartbeat', name: 'Mechanical Heartbeat', category: 'ambient', path: '/audio/ambient/Mechanical Heartbeat.mp3' },
   { id: 'portal-activation', name: 'Portal Activation', category: 'activation', path: '/audio/activation/Portal Activation.mp3' },
   { id: 'portal-activation-alt', name: 'Portal Activation (Alt)', category: 'activation', path: '/audio/activation/Portal Activation (1).mp3' },
   { id: 'dimensional-barrier-broken', name: 'Dimensional Barrier Broken', category: 'activation', path: '/audio/activation/dimensional barrier broken.mp3' },
