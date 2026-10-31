@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AudioEngine, type AudioStatus } from './audio/AudioEngine'
+import {
+  defaultAudioSettings,
+  parseAudioSettingsPatch,
+  type AudioSettings,
+} from './audio/audioRegistry'
+import { OPENING_DURATION_MS, SEALING_DURATION_MS } from './portalTiming'
 import { scenarioRegistry, type ScenarioId } from './scenarios'
 import {
   CHANNEL_NAME,
@@ -12,11 +19,25 @@ import './App.css'
 
 type PortalState = PortalSnapshot['portalState']
 
-const OPENING_DURATION_MS = 700
-const SEALING_DURATION_MS = 500
+const AUDIO_STORAGE_KEY = 'dimensional-control.audio'
+
+function loadAudioSettings(): AudioSettings {
+  try {
+    const stored = window.sessionStorage.getItem(AUDIO_STORAGE_KEY)
+    const patch = stored ? parseAudioSettingsPatch(JSON.parse(stored)) : null
+    return { ...defaultAudioSettings, ...patch, silenced: false }
+  } catch {
+    return defaultAudioSettings
+  }
+}
 
 function Portal() {
   const [portalState, setPortalState] = useState<PortalState>('CLOSED')
+  const [openingRun, setOpeningRun] = useState(0)
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(loadAudioSettings)
+  const [audioStatus, setAudioStatus] = useState<AudioStatus>({ ready: false, error: null })
+  const audioEngineRef = useRef<AudioEngine | null>(null)
+  const audioSettingsRef = useRef(audioSettings)
   const [selectedScenarioId, setSelectedScenarioId] = useState<ScenarioId>('the-observer')
   const [calibrationVisible, setCalibrationVisible] = useState(false)
   const [playbackUnlocked, setPlaybackUnlocked] = useState(
@@ -43,7 +64,8 @@ function Portal() {
     calibrationVisible,
     unstable,
     error: scenarioError,
-  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, scenarioError])
+    audio: { ...audioSettings, ...audioStatus },
+  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, scenarioError, audioSettings, audioStatus])
   const snapshotRef = useRef<PortalSnapshot>({
     portalState: 'CLOSED',
     selectedScenarioId: 'the-observer',
@@ -51,6 +73,7 @@ function Portal() {
     calibrationVisible: false,
     unstable: false,
     error: null,
+    audio: { ...defaultAudioSettings, ready: false, error: null },
   })
 
   const publishSnapshot = useCallback(() => {
@@ -70,6 +93,7 @@ function Portal() {
     const video = videoRef.current
     video?.pause()
     if (video && video.readyState > HTMLMediaElement.HAVE_NOTHING) video.currentTime = 0
+    audioEngineRef.current?.setPhase('idle', { ambientMs: 1000, activationMs: 100 })
     setPortalState('CLOSED')
     setVideoStatus('idle')
     setUnstable(false)
@@ -119,6 +143,7 @@ function Portal() {
     if (video && video.readyState > HTMLMediaElement.HAVE_NOTHING) video.currentTime = 0
     setVideoStatus(video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA ? 'ready' : 'loading')
     setPortalState('OPENING')
+    setOpeningRun((run) => run + 1)
   }, [clearTransitionTimer, failPlayback])
 
   const handleCommand = useCallback((command: ControlCommand) => {
@@ -159,6 +184,9 @@ function Portal() {
       case 'SET_UNSTABLE':
         setUnstable(command.enabled)
         break
+      case 'SET_AUDIO_SETTINGS':
+        setAudioSettings((settings) => ({ ...settings, ...command.settings }))
+        break
     }
 
     channelRef.current?.postMessage(createPortalEvent({ type: 'ACK', commandId: command.messageId }))
@@ -172,6 +200,40 @@ function Portal() {
   useEffect(() => {
     snapshotRef.current = snapshot
   }, [snapshot])
+
+  useEffect(() => {
+    const engine = new AudioEngine(audioSettingsRef.current, setAudioStatus)
+    audioEngineRef.current = engine
+    void engine.unlock()
+    window.setTimeout(() => setAudioStatus(engine.status), 0)
+    return () => {
+      engine.dispose()
+      audioEngineRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    audioSettingsRef.current = audioSettings
+    audioEngineRef.current?.setSettings(audioSettings)
+    try {
+      window.sessionStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(audioSettings))
+    } catch {
+      // Session storage is optional; settings simply will not persist across reloads.
+    }
+  }, [audioSettings])
+
+  useEffect(() => {
+    audioEngineRef.current?.attachVideo(videoRef.current)
+  }, [selectedScenarioId])
+
+  // The audio engine only reacts to state-machine transitions; it never starts videos.
+  useEffect(() => {
+    const engine = audioEngineRef.current
+    if (!engine) return
+    if (portalState === 'OPENING') engine.setPhase('opening')
+    else if (portalState === 'ACTIVE') engine.setPhase('video')
+    else engine.setPhase('idle')
+  }, [portalState, openingRun])
 
   useEffect(() => {
     let channel: BroadcastChannel
@@ -285,7 +347,7 @@ function Portal() {
       window.clearTimeout(timer)
       if (transitionTimer.current === timer) transitionTimer.current = null
     }
-  }, [portalState, failPlayback])
+  }, [portalState, openingRun, failPlayback])
 
   useEffect(() => {
     if (portalState !== 'ACTIVE') return
@@ -315,7 +377,10 @@ function Portal() {
 
   useEffect(() => {
     if (playbackUnlocked) return
-    const unlock = () => setPlaybackUnlocked(true)
+    const unlock = () => {
+      setPlaybackUnlocked(true)
+      void audioEngineRef.current?.unlock()
+    }
     window.addEventListener('pointerdown', unlock, { once: true })
     window.addEventListener('keydown', unlock, { once: true })
     return () => {
@@ -388,8 +453,8 @@ function Portal() {
         </div>
       </div>
 
-      {!playbackUnlocked && (
-        <div className="portal-unlock" role="status">Click this window once to enable video and sound</div>
+      {!playbackUnlocked && !audioStatus.ready && (
+        <div className="portal-unlock" role="status">Click this window once to enable audio and video</div>
       )}
 
       {calibrationVisible && (

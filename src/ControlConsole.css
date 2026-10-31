@@ -316,6 +316,73 @@
   line-height: 1.55;
 }
 
+.audio-badge {
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 190, 130, 0.35);
+  border-radius: 3px;
+  color: #f0c797;
+  font: 700 11px/1 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.audio-badge--ready {
+  border-color: rgba(93, 220, 179, 0.42);
+  color: #9ce7cb;
+}
+
+.audio-badge--error {
+  border-color: rgba(255, 126, 115, 0.5);
+  color: #ffb9ad;
+}
+
+.audio-controls {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.audio-field {
+  display: grid;
+  gap: 6px;
+  color: #9cb5b6;
+  font: 600 11px/1.2 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.audio-field output {
+  margin-left: 6px;
+  color: #e2f6f3;
+}
+
+.audio-field select {
+  padding: 10px;
+  border: 1px solid rgba(126, 223, 224, 0.27);
+  border-radius: 4px;
+  background: rgba(3, 11, 14, 0.8);
+  color: #e0f6f3;
+  font-size: 14px;
+}
+
+.audio-field input[type='range'] {
+  width: 100%;
+  accent-color: #5ddcb3;
+}
+
+.audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e0f6f3;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.audio-field select:disabled,
+.audio-field input:disabled {
+  opacity: 0.45;
+}
+
 .console-footer {
   display: flex;
   max-width: 1200px;

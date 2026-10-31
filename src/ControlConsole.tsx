@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { activationTracks, ambientTracks, type AudioSettings } from './audio/audioRegistry'
 import { scenarioRegistry, type ScenarioId } from './scenarios'
 import {
   CHANNEL_NAME,
@@ -18,8 +19,18 @@ type PendingCommand = {
   label: string
 }
 
+type VolumeKey = 'masterVolume' | 'ambientVolume' | 'activationVolume' | 'videoVolume'
+
+const volumeControls: { key: VolumeKey; label: string }[] = [
+  { key: 'masterVolume', label: 'Master Volume' },
+  { key: 'ambientVolume', label: 'Ambient Volume' },
+  { key: 'activationVolume', label: 'Activation Volume' },
+  { key: 'videoVolume', label: 'Video Volume' },
+]
+
 function ControlConsole() {
   const [connected, setConnected] = useState(false)
+  const [draftVolumes, setDraftVolumes] = useState<Partial<Record<VolumeKey, number>>>({})
   const [snapshot, setSnapshot] = useState<PortalSnapshot | null>(null)
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null)
   const [connectionError, setConnectionError] = useState('')
@@ -116,9 +127,23 @@ function ControlConsole() {
   }, [connected])
 
   const sendSimpleCommand = useCallback((
-    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE'>,
+    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE' | 'SET_AUDIO_SETTINGS'>,
     label: string,
   ) => sendCommand(createControlCommand({ type }), label), [sendCommand])
+
+  // Audio changes are not serialized through the pending-command lock so sliders and
+  // Emergency Silence always respond; the portal's reported snapshot is the source of truth.
+  const sendAudioSettings = useCallback((settings: Partial<AudioSettings>) => {
+    const channel = channelRef.current
+    if (!connected || !channel) return
+    try {
+      channel.postMessage(createControlCommand({ type: 'SET_AUDIO_SETTINGS', settings }))
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? `Audio command could not be sent: ${error.message}` : 'Audio command could not be sent.',
+      )
+    }
+  }, [connected])
 
   const sendEmergencySeal = useCallback(() => {
     sendCommand(createControlCommand({ type: 'EMERGENCY_SEAL' }), 'Emergency seal', true)
@@ -163,6 +188,7 @@ function ControlConsole() {
   }, [sendEmergencySeal, sendSimpleCommand])
 
   const selectedScenario = snapshot ? scenarioRegistry[snapshot.selectedScenarioId] : null
+  const audio = snapshot?.audio
   const actionDisabled = !connected || pendingCommand !== null
 
   return (
@@ -234,7 +260,6 @@ function ControlConsole() {
                   onClick={() => selectScenario(scenario.id)}
                 >
                   <span className="scenario-choice__name">{scenario.name}</span>
-                  <span className="scenario-choice__description">{scenario.description}</span>
                   <span className="scenario-choice__state">{isSelected ? 'SELECTED' : 'SELECT'}</span>
                 </button>
               )
@@ -262,28 +287,11 @@ function ControlConsole() {
             <button
               className="console-button"
               type="button"
-              disabled={actionDisabled || !snapshot}
-              onClick={() => sendSimpleCommand('START_SCENARIO', 'Replay')}
-            >
-              Replay
-            </button>
-            <button
-              className="console-button"
-              type="button"
               disabled={actionDisabled || !snapshot || snapshot.portalState === 'CLOSED'}
               onClick={() => sendSimpleCommand('CLOSE_PORTAL', 'Close portal')}
             >
               Close Portal
               <kbd>Ctrl+Alt+Shift+C</kbd>
-            </button>
-            <button
-              className="console-button console-button--danger"
-              type="button"
-              disabled={!connected}
-              onClick={sendEmergencySeal}
-            >
-              Emergency Seal
-              <kbd>Ctrl+Alt+Shift+X</kbd>
             </button>
             <button
               className="console-button"
@@ -293,26 +301,104 @@ function ControlConsole() {
             >
               {snapshot?.calibrationVisible ? 'Hide calibration grid' : 'Show calibration grid'}
             </button>
-            <button
-              className="console-button"
-              type="button"
-              disabled={actionDisabled || !snapshot}
-              onClick={() => {
-                if (!snapshot) return
-                sendCommand(
-                  createControlCommand({ type: 'SET_UNSTABLE', enabled: !snapshot.unstable }),
-                  snapshot.unstable ? 'Stabilize portal' : 'Make portal unstable',
-                )
-              }}
-            >
-              {snapshot?.unstable ? 'Stabilize Portal' : 'Set Unstable'}
-            </button>
           </div>
           {pendingCommand && (
             <p className="console-feedback" role="status">
               Waiting for portal to acknowledge: {pendingCommand.label}…
             </p>
           )}
+        </section>
+
+        <section className="console-card" aria-labelledby="audio-heading">
+          <div className="console-card__heading">
+            <div>
+              <p className="console-eyebrow">Portal speakers</p>
+              <h2 id="audio-heading">Audio</h2>
+            </div>
+            <span
+              className={`audio-badge${audio?.error ? ' audio-badge--error' : audio?.ready ? ' audio-badge--ready' : ''}`}
+              role="status"
+            >
+              {!audio ? 'OFFLINE' : audio.error ? 'AUDIO ERROR' : audio.ready ? 'AUDIO READY' : 'NEEDS ENABLE'}
+            </span>
+          </div>
+          {audio && !audio.ready && !audio.error && (
+            <p className="console-note">
+              Click anywhere in the <code>/portal</code> window once to enable audio; the browser does not
+              allow this console to unlock it.
+            </p>
+          )}
+          {audio?.error && <p className="console-alert" role="alert">{audio.error}</p>}
+          <div className="audio-controls">
+            <label className="audio-field">
+              <span>Ambient Track</span>
+              <select
+                value={audio?.ambientTrackId ?? ''}
+                disabled={!audio || !connected}
+                onChange={(event) => sendAudioSettings({ ambientTrackId: event.target.value })}
+              >
+                {!audio && <option value="">—</option>}
+                {ambientTracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
+              </select>
+            </label>
+            <label className="audio-field">
+              <span>Activation Track</span>
+              <select
+                value={audio?.activationTrackId ?? ''}
+                disabled={!audio || !connected}
+                onChange={(event) => sendAudioSettings({ activationTrackId: event.target.value })}
+              >
+                {!audio && <option value="">—</option>}
+                {activationTracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
+              </select>
+            </label>
+            {volumeControls.map(({ key, label }) => {
+              const value = draftVolumes[key] ?? audio?.[key] ?? 0
+              const clearDraft = () => setDraftVolumes((drafts) => {
+                const { [key]: _removed, ...rest } = drafts
+                void _removed
+                return rest
+              })
+              return (
+                <label className="audio-field" key={key}>
+                  <span>{label} <output>{Math.round(value * 100)}%</output></span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(value * 100)}
+                    disabled={!audio || !connected}
+                    onChange={(event) => {
+                      const next = Number(event.target.value) / 100
+                      setDraftVolumes((drafts) => ({ ...drafts, [key]: next }))
+                      sendAudioSettings({ [key]: next })
+                    }}
+                    onPointerUp={clearDraft}
+                    onKeyUp={clearDraft}
+                    onBlur={clearDraft}
+                  />
+                </label>
+              )
+            })}
+            <label className="audio-toggle">
+              <input
+                type="checkbox"
+                checked={audio?.automatic ?? true}
+                disabled={!audio || !connected}
+                onChange={(event) => sendAudioSettings({ automatic: event.target.checked })}
+              />
+              <span>Automatic Audio</span>
+            </label>
+          </div>
+          <button
+            className={`console-button${audio?.silenced ? '' : ' console-button--danger'}`}
+            type="button"
+            disabled={!audio || !connected}
+            onClick={() => audio && sendAudioSettings({ silenced: !audio.silenced })}
+          >
+            {audio?.silenced ? 'Restore Audio' : 'Emergency Silence'}
+          </button>
         </section>
 
         <section className="console-card console-card--alerts" aria-labelledby="alerts-heading">

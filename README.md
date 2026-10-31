@@ -15,17 +15,16 @@ implementation covers Phase 1 (portal display and calibration) and Phase 2
    Calibrate using **Ctrl+Alt+Shift+C** on the projector window or **Show
    calibration grid** on the console. Adjust projection scale, offsets, and
    horizontal mirror on the projector window, then hide calibration before the show.
-6. On `/control`, select an encounter and use **Play**, **Replay**, **Close
-   Portal**, or **Emergency Seal**. The console displays state reported by the
+6. On `/control`, select an encounter and use **Play** or **Close Portal**. The
+   console displays state reported by the
    portal, not assumed command outcomes. It reconnects automatically after
-   either window reloads. **Set Unstable** adds a slow, low-intensity red
-   interference effect; closing or emergency-sealing the portal clears it.
+   either window reloads.
 
 Operator shortcuts on `/control` (not active in form fields):
 
 - **Ctrl+Alt+Shift+P** — Play the selected scenario.
 - **Ctrl+Alt+Shift+C** — Close the portal through its sealing transition.
-- **Ctrl+Alt+Shift+X** — Emergency Seal immediately.
+- **Ctrl+Alt+Shift+X** — Emergency Seal immediately (keyboard only; no button).
 
 The portal stays free of operator controls during normal playback. Its only
 keyboard shortcuts are **Ctrl+Alt+Shift+C** for calibration and
@@ -39,6 +38,18 @@ Creature, Goliath, AI, Otherside, Woods, Storybook) load from
 once and returns the portal to CLOSED when it ends. Their typed scenario
 configuration, including independent video positioning and ending behavior,
 is in `src/scenarios.ts`.
+
+## Audio
+
+Audio plays only from `/portal`. Click once anywhere in the portal window after
+opening it (browsers block audio until then); `/control` shows
+"AUDIO READY" once it is unlocked. Tracks are listed in
+`src/audio/audioRegistry.ts` (files under `public/audio/`); the opening sequence
+length is `OPENING_DURATION_MS` in `src/portalTiming.ts` (10 seconds).
+The sequence is ambient → activation (opening) → video → ambient (after sealing).
+The console's Audio section controls track selection, volumes, Automatic Audio,
+and Emergency Silence / Restore Audio. Selections and volumes persist for the
+portal tab's session.
 
 ## Build and lint
 

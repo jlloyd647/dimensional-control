@@ -1,9 +1,15 @@
 import { scenarioRegistry, type ScenarioId } from '../scenarios'
+import { isAudioSettings, parseAudioSettingsPatch, type AudioSettings } from '../audio/audioRegistry'
 
 export const CHANNEL_NAME = 'dimensional-control'
 
 export type PortalState = 'CLOSED' | 'OPENING' | 'ACTIVE' | 'SEALING'
 export type VideoStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'ended' | 'error'
+
+export type AudioSnapshot = AudioSettings & {
+  ready: boolean
+  error: string | null
+}
 
 export type PortalSnapshot = {
   portalState: PortalState
@@ -12,6 +18,7 @@ export type PortalSnapshot = {
   calibrationVisible: boolean
   unstable: boolean
   error: string | null
+  audio: AudioSnapshot
 }
 
 type MessageBase = {
@@ -27,6 +34,7 @@ type ControlCommandPayload =
   | { type: 'EMERGENCY_SEAL' }
   | { type: 'TOGGLE_CALIBRATION' }
   | { type: 'SET_UNSTABLE'; enabled: boolean }
+  | { type: 'SET_AUDIO_SETTINGS'; settings: Partial<AudioSettings> }
 export type ControlCommand = MessageBase & ControlCommandPayload
 
 type PortalEventPayload =
@@ -58,6 +66,16 @@ function isPortalSnapshot(value: unknown): value is PortalSnapshot {
     && typeof value.calibrationVisible === 'boolean'
     && typeof value.unstable === 'boolean'
     && (typeof value.error === 'string' || value.error === null)
+    && isAudioSnapshot(value.audio)
+}
+
+function isAudioSnapshot(value: unknown): value is AudioSnapshot {
+  if (!isRecord(value) || typeof value.ready !== 'boolean') return false
+  if (!(typeof value.error === 'string' || value.error === null)) return false
+  const { ready, error, ...settings } = value
+  void ready
+  void error
+  return isAudioSettings(settings)
 }
 
 export function isControlCommand(value: unknown): value is ControlCommand {
@@ -72,6 +90,8 @@ export function isControlCommand(value: unknown): value is ControlCommand {
       return true
     case 'SET_UNSTABLE':
       return typeof value.enabled === 'boolean'
+    case 'SET_AUDIO_SETTINGS':
+      return parseAudioSettingsPatch(value.settings) !== null
     case 'SELECT_SCENARIO':
       return typeof value.scenarioId === 'string'
         && Object.prototype.hasOwnProperty.call(scenarioRegistry, value.scenarioId)
