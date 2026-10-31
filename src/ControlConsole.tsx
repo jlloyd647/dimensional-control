@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { activationTracks, ambientTracks, type AudioSettings } from './audio/audioRegistry'
+import { activationTracks, ambientTracks, RANDOM_TRACK_ID, type AudioSettings } from './audio/audioRegistry'
 import { scenarioRegistry, type ScenarioId } from './scenarios'
 import {
   CHANNEL_NAME,
@@ -127,7 +127,7 @@ function ControlConsole() {
   }, [connected])
 
   const sendSimpleCommand = useCallback((
-    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE' | 'SET_AUDIO_SETTINGS'>,
+    type: Exclude<ControlCommand['type'], 'HELLO' | 'SELECT_SCENARIO' | 'SET_UNSTABLE' | 'SET_AUDIO_SETTINGS' | 'SET_ACTIVATION_TRACK'>,
     label: string,
   ) => sendCommand(createControlCommand({ type }), label), [sendCommand])
 
@@ -148,6 +148,32 @@ function ControlConsole() {
   const sendEmergencySeal = useCallback(() => {
     sendCommand(createControlCommand({ type: 'EMERGENCY_SEAL' }), 'Emergency seal', true)
   }, [sendCommand])
+
+  const sendActivationTrack = useCallback((scenarioId: ScenarioId, trackId: string) => {
+    const channel = channelRef.current
+    if (!connected || !channel) return
+    try {
+      channel.postMessage(createControlCommand({ type: 'SET_ACTIVATION_TRACK', scenarioId, trackId }))
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? `Audio command could not be sent: ${error.message}` : 'Audio command could not be sent.',
+      )
+    }
+  }, [connected])
+
+  const [activationDraft, setActivationDraft] = useState<Partial<Record<ScenarioId, string>>>({})
+
+  // Show the operator's choice immediately; fall back to the reported value if the portal doesn't confirm it.
+  const chooseActivationTrack = useCallback((scenarioId: ScenarioId, trackId: string) => {
+    setActivationDraft((current) => ({ ...current, [scenarioId]: trackId }))
+    window.setTimeout(() => {
+      setActivationDraft((current) => {
+        const { [scenarioId]: _discarded, ...rest } = current
+        return rest
+      })
+    }, 4000)
+    sendActivationTrack(scenarioId, trackId)
+  }, [sendActivationTrack])
 
   const selectScenario = useCallback((scenarioId: ScenarioId) => {
     sendCommand(
@@ -251,17 +277,29 @@ function ControlConsole() {
             {scenarios.map((scenario) => {
               const isSelected = snapshot?.selectedScenarioId === scenario.id
               return (
-                <button
-                  className={`scenario-choice${isSelected ? ' scenario-choice--selected' : ''}`}
-                  key={scenario.id}
-                  type="button"
-                  disabled={actionDisabled}
-                  aria-pressed={isSelected}
-                  onClick={() => selectScenario(scenario.id)}
-                >
-                  <span className="scenario-choice__name">{scenario.name}</span>
-                  <span className="scenario-choice__state">{isSelected ? 'SELECTED' : 'SELECT'}</span>
-                </button>
+                <div className="scenario-item" key={scenario.id}>
+                  <button
+                    className={`scenario-choice${isSelected ? ' scenario-choice--selected' : ''}`}
+                    type="button"
+                    disabled={actionDisabled}
+                    aria-pressed={isSelected}
+                    onClick={() => selectScenario(scenario.id)}
+                  >
+                    <span className="scenario-choice__name">{scenario.name}</span>
+                    <span className="scenario-choice__state">{isSelected ? 'SELECTED' : 'SELECT'}</span>
+                  </button>
+                  <label className="scenario-activation">
+                    <span>Activation music</span>
+                    <select
+                      value={activationDraft[scenario.id] ?? snapshot?.audio.activationByScenario[scenario.id] ?? RANDOM_TRACK_ID}
+                      disabled={!snapshot || !connected}
+                      onChange={(event) => chooseActivationTrack(scenario.id, event.target.value)}
+                    >
+                      <option value={RANDOM_TRACK_ID}>No selection (random)</option>
+                      {activationTracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
+                    </select>
+                  </label>
+                </div>
               )
             })}
           </div>
@@ -349,6 +387,7 @@ function ControlConsole() {
                 onChange={(event) => sendAudioSettings({ activationTrackId: event.target.value })}
               >
                 {!audio && <option value="">—</option>}
+                <option value={RANDOM_TRACK_ID}>No selection (random)</option>
                 {activationTracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
               </select>
             </label>

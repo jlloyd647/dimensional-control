@@ -9,6 +9,7 @@ export type VideoStatus = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 
 export type AudioSnapshot = AudioSettings & {
   ready: boolean
   error: string | null
+  activationByScenario: Partial<Record<ScenarioId, string>>
 }
 
 export type PortalSnapshot = {
@@ -35,6 +36,7 @@ type ControlCommandPayload =
   | { type: 'TOGGLE_CALIBRATION' }
   | { type: 'SET_UNSTABLE'; enabled: boolean }
   | { type: 'SET_AUDIO_SETTINGS'; settings: Partial<AudioSettings> }
+  | { type: 'SET_ACTIVATION_TRACK'; scenarioId: ScenarioId; trackId: string }
 export type ControlCommand = MessageBase & ControlCommandPayload
 
 type PortalEventPayload =
@@ -72,10 +74,10 @@ function isPortalSnapshot(value: unknown): value is PortalSnapshot {
 function isAudioSnapshot(value: unknown): value is AudioSnapshot {
   if (!isRecord(value) || typeof value.ready !== 'boolean') return false
   if (!(typeof value.error === 'string' || value.error === null)) return false
-  const { ready, error, ...settings } = value
+  const { ready, error, activationByScenario, ...settings } = value
   void ready
   void error
-  return isAudioSettings(settings)
+  return isRecord(activationByScenario) && isAudioSettings(settings)
 }
 
 export function isControlCommand(value: unknown): value is ControlCommand {
@@ -92,6 +94,10 @@ export function isControlCommand(value: unknown): value is ControlCommand {
       return typeof value.enabled === 'boolean'
     case 'SET_AUDIO_SETTINGS':
       return parseAudioSettingsPatch(value.settings) !== null
+    case 'SET_ACTIVATION_TRACK':
+      return typeof value.scenarioId === 'string'
+        && Object.prototype.hasOwnProperty.call(scenarioRegistry, value.scenarioId)
+        && parseAudioSettingsPatch({ activationTrackId: value.trackId }) !== null
     case 'SELECT_SCENARIO':
       return typeof value.scenarioId === 'string'
         && Object.prototype.hasOwnProperty.call(scenarioRegistry, value.scenarioId)

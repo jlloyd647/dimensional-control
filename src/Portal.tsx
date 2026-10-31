@@ -3,6 +3,7 @@ import { AudioEngine, type AudioStatus } from './audio/AudioEngine'
 import {
   defaultAudioSettings,
   parseAudioSettingsPatch,
+  RANDOM_TRACK_ID,
   type AudioSettings,
 } from './audio/audioRegistry'
 import { OPENING_DURATION_MS, SEALING_DURATION_MS } from './portalTiming'
@@ -20,6 +21,25 @@ import './App.css'
 type PortalState = PortalSnapshot['portalState']
 
 const AUDIO_STORAGE_KEY = 'dimensional-control.audio'
+const ACTIVATION_STORAGE_KEY = 'dimensional-control.activation-by-scenario'
+
+type ActivationByScenario = Partial<Record<ScenarioId, string>>
+
+// Per-scenario activation choices persist in localStorage across sessions.
+function loadActivationByScenario(): ActivationByScenario {
+  const result: ActivationByScenario = {}
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(ACTIVATION_STORAGE_KEY) ?? '{}')
+    if (typeof stored !== 'object' || stored === null) return result
+    for (const [scenarioId, trackId] of Object.entries(stored)) {
+      if (!Object.prototype.hasOwnProperty.call(scenarioRegistry, scenarioId)) continue
+      if (parseAudioSettingsPatch({ activationTrackId: trackId })) result[scenarioId as ScenarioId] = trackId as string
+    }
+  } catch {
+    // Unreadable storage falls back to random for every scenario.
+  }
+  return result
+}
 
 function loadAudioSettings(): AudioSettings {
   try {
@@ -35,10 +55,15 @@ function Portal() {
   const [portalState, setPortalState] = useState<PortalState>('CLOSED')
   const [openingRun, setOpeningRun] = useState(0)
   const [audioSettings, setAudioSettings] = useState<AudioSettings>(loadAudioSettings)
+  const [activationByScenario, setActivationByScenario] = useState<ActivationByScenario>(loadActivationByScenario)
   const [audioStatus, setAudioStatus] = useState<AudioStatus>({ ready: false, error: null })
   const audioEngineRef = useRef<AudioEngine | null>(null)
-  const audioSettingsRef = useRef(audioSettings)
   const [selectedScenarioId, setSelectedScenarioId] = useState<ScenarioId>('the-observer')
+  const effectiveAudio = useMemo<AudioSettings>(() => ({
+    ...audioSettings,
+    activationTrackId: activationByScenario[selectedScenarioId] ?? RANDOM_TRACK_ID,
+  }), [audioSettings, activationByScenario, selectedScenarioId])
+  const audioSettingsRef = useRef(effectiveAudio)
   const [calibrationVisible, setCalibrationVisible] = useState(false)
   const [playbackUnlocked, setPlaybackUnlocked] = useState(
     () => navigator.userActivation?.hasBeenActive ?? false,
@@ -64,8 +89,8 @@ function Portal() {
     calibrationVisible,
     unstable,
     error: scenarioError,
-    audio: { ...audioSettings, ...audioStatus },
-  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, scenarioError, audioSettings, audioStatus])
+    audio: { ...effectiveAudio, ...audioStatus, activationByScenario },
+  }), [portalState, selectedScenarioId, videoStatus, calibrationVisible, unstable, scenarioError, effectiveAudio, audioStatus, activationByScenario])
   const snapshotRef = useRef<PortalSnapshot>({
     portalState: 'CLOSED',
     selectedScenarioId: 'the-observer',
@@ -73,7 +98,7 @@ function Portal() {
     calibrationVisible: false,
     unstable: false,
     error: null,
-    audio: { ...defaultAudioSettings, ready: false, error: null },
+    audio: { ...defaultAudioSettings, ready: false, error: null, activationByScenario: {} },
   })
 
   const publishSnapshot = useCallback(() => {
@@ -184,13 +209,21 @@ function Portal() {
       case 'SET_UNSTABLE':
         setUnstable(command.enabled)
         break
-      case 'SET_AUDIO_SETTINGS':
-        setAudioSettings((settings) => ({ ...settings, ...command.settings }))
+      case 'SET_ACTIVATION_TRACK':
+        setActivationByScenario((current) => ({ ...current, [command.scenarioId]: command.trackId }))
         break
+      case 'SET_AUDIO_SETTINGS': {
+        const { activationTrackId, ...rest } = command.settings
+        if (activationTrackId) {
+          setActivationByScenario((current) => ({ ...current, [selectedScenarioId]: activationTrackId }))
+        }
+        if (Object.keys(rest).length > 0) setAudioSettings((settings) => ({ ...settings, ...rest }))
+        break
+      }
     }
 
     channelRef.current?.postMessage(createPortalEvent({ type: 'ACK', commandId: command.messageId }))
-  }, [closePortal, emergencyClose, publishSnapshot, startScenario])
+  }, [closePortal, emergencyClose, publishSnapshot, startScenario, selectedScenarioId])
 
   const commandHandler = useRef(handleCommand)
   useEffect(() => {
@@ -213,14 +246,34 @@ function Portal() {
   }, [])
 
   useEffect(() => {
-    audioSettingsRef.current = audioSettings
-    audioEngineRef.current?.setSettings(audioSettings)
+    audioSettingsRef.current = effectiveAudio
+    audioEngineRef.current?.setSettings(effectiveAudio)
+  }, [effectiveAudio])
+
+  useEffect(() => {
     try {
       window.sessionStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(audioSettings))
     } catch {
       // Session storage is optional; settings simply will not persist across reloads.
     }
   }, [audioSettings])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVATION_STORAGE_KEY, JSON.stringify(activationByScenario))
+    } catch {
+      // Local storage is optional; activation choices simply will not persist.
+    }
+  }, [activationByScenario])
+
+  // Keep multiple open portal windows consistent with each other.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ACTIVATION_STORAGE_KEY) setActivationByScenario(loadActivationByScenario())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   useEffect(() => {
     audioEngineRef.current?.attachVideo(videoRef.current)

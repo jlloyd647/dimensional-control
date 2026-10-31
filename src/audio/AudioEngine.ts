@@ -1,5 +1,7 @@
 import {
+  activationTracks,
   getAudioTrack,
+  RANDOM_TRACK_ID,
   type AudioSettings,
   type AudioTrack,
 } from './audioRegistry'
@@ -149,6 +151,7 @@ export class AudioEngine {
   get status(): AudioStatus {
     const error = this.contextError
       ?? this.trackErrors.get(this.settings.ambientTrackId)
+      ?? (this.activationId ? this.trackErrors.get(this.activationId) : undefined)
       ?? this.trackErrors.get(this.settings.activationTrackId)
       ?? null
     return { ready: this.context?.state === 'running', error }
@@ -211,7 +214,7 @@ export class AudioEngine {
 
     switch (phase) {
       case 'opening':
-        this.activationId = this.settings.activationTrackId
+        this.activationId = this.pickActivationId()
         this.trackErrors.delete(this.activationId)
         this.reconcile(AMBIENT_DUCK_MS, ACTIVATION_IN_MS, true)
         break
@@ -258,9 +261,23 @@ export class AudioEngine {
     }
   }
 
+  private pickActivationId(): string {
+    const selected = this.settings.activationTrackId
+    if (selected !== RANDOM_TRACK_ID) return selected
+    // Avoid repeating the previous cue, and skip tracks that failed to load when possible.
+    let choices = activationTracks.filter((track) => track.id !== this.activationId && !this.trackErrors.has(track.id))
+    if (choices.length === 0) choices = activationTracks.filter((track) => !this.trackErrors.has(track.id))
+    if (choices.length === 0) choices = activationTracks
+    return choices[Math.floor(Math.random() * choices.length)].id
+  }
+
   private prefetch() {
     this.getVoice(this.settings.ambientTrackId)
-    this.getVoice(this.settings.activationTrackId)
+    if (this.settings.activationTrackId === RANDOM_TRACK_ID) {
+      activationTracks.forEach((track) => this.getVoice(track.id))
+    } else {
+      this.getVoice(this.settings.activationTrackId)
+    }
   }
 
   private reconcile(ambientMs: number, activationMs: number, restartActivation = false) {

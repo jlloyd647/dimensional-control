@@ -48,8 +48,10 @@ opening it (browsers block audio until then); `/control` shows
 length is `OPENING_DURATION_MS` in `src/portalTiming.ts` (10 seconds).
 The sequence is ambient → activation (opening) → video → ambient (after sealing).
 The console's Audio section controls track selection, volumes, Automatic Audio,
-and Emergency Silence / Restore Audio. Selections and volumes persist for the
-portal tab's session.
+and Emergency Silence / Restore Audio. The Activation Track dropdown applies to the
+currently selected scenario; each scenario's choice is saved in the browser's
+`localStorage` and defaults to "No selection (random)". Other audio selections and
+volumes persist for the portal tab's session.
 
 ## Build and lint
 

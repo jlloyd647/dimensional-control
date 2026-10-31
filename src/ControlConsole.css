@@ -176,6 +176,33 @@
   gap: 10px;
 }
 
+.scenario-item {
+  display: grid;
+  gap: 6px;
+}
+
+.scenario-activation {
+  display: grid;
+  gap: 4px;
+  color: #86a6a7;
+  font: 600 10px/1.2 ui-monospace, Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scenario-activation select {
+  padding: 7px 8px;
+  border: 1px solid rgba(126, 223, 224, 0.22);
+  border-radius: 4px;
+  background: rgba(3, 11, 14, 0.8);
+  color: #d7f7f5;
+  font-size: 12px;
+}
+
+.scenario-activation select:disabled {
+  opacity: 0.45;
+}
+
 .scenario-choice {
   position: relative;
   display: grid;
